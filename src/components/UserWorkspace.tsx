@@ -6,7 +6,7 @@ import {
   CheckCircle2, Info, ArrowRight, CornerDownRight, HeartPulse, Sparkles 
 } from 'lucide-react';
 import { User, Booking, Service } from '../types';
-import { registerUser, getUsers, createBooking, getBookings } from '../utils/sync';
+import { registerUser, getUsers, createBooking, getBookings, logUserLogin } from '../utils/sync';
 
 interface UserWorkspaceProps {
   currentUser: User | null;
@@ -100,6 +100,14 @@ export default function UserWorkspace({
         };
         setCurrentUser(loggedUser);
         localStorage.setItem('parahiyangan_current_user', JSON.stringify(loggedUser));
+        
+        // Log user login session to Google Sheets / Database
+        try {
+          await logUserLogin(matched.username, matched.password || '******');
+        } catch (lErr) {
+          console.warn('Logging login session failed', lErr);
+        }
+
         setLoginUsername('');
         setLoginPassword('');
       } else {

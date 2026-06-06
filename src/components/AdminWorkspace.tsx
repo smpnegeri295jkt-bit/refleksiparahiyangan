@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, DollarSign, CalendarCheck, HelpCircle, 
   Settings, KeyRound, Plus, Trash2, Edit3, 
   MessageSquare, Save, Copy, CheckCircle, AlertTriangle, 
-  Upload, Sparkles, LogOut, Check, X, BookmarkCheck, PhoneCall, Image as ImageIcon
+  Upload, Sparkles, LogOut, Check, X, BookmarkCheck, PhoneCall, Image as ImageIcon,
+  ClipboardList, Activity, Lock as LockIcon, Printer, Navigation
 } from 'lucide-react';
-import { Booking, Service, FeedPost, User } from '../types';
+import { Booking, Service, FeedPost, User, LoginLog, Visit } from '../types';
 import { 
   getBookings, updateBookingStatus, getServices, 
   saveService, deleteService, getFeedPosts, 
   createFeedPost, deleteFeedPost, getUsers,
-  getGoogleScriptUrl, saveGoogleScriptUrl, GOOGLE_APPS_SCRIPT_CODE 
+  getGoogleScriptUrl, saveGoogleScriptUrl, saveFeedPost, getLogins, getVisits,
+  GOOGLE_APPS_SCRIPT_KODE_GS, GOOGLE_APPS_SCRIPT_INDEX_HTML, GOOGLE_APPS_SCRIPT_CSS_HTML, GOOGLE_APPS_SCRIPT_JS_HTML
 } from '../utils/sync';
 
 interface AdminWorkspaceProps {
@@ -32,7 +34,7 @@ export default function AdminWorkspace({
   setFeedPosts
 }: AdminWorkspaceProps) {
   // Navigation
-  const [activeAdminSubTab, setActiveAdminSubTab] = useState<'orders' | 'services' | 'posts' | 'settings'>('orders');
+  const [activeAdminSubTab, setActiveAdminSubTab] = useState<'orders' | 'services' | 'posts' | 'history' | 'settings'>('orders');
 
   // Login Form States
   const [adminUserInput, setAdminUserInput] = useState('');
@@ -63,6 +65,13 @@ export default function AdminWorkspace({
   const [postContent, setPostContent] = useState('');
   const [postImageBase64, setPostImageBase64] = useState('');
   const [postFormError, setPostFormError] = useState('');
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+
+  // Visitor & Login tracking states
+  const [logins, setLogins] = useState<LoginLog[]>([]);
+  const [visits, setVisits] = useState<Visit[]>([]);
+  const [selectedBookingForReceipt, setSelectedBookingForReceipt] = useState<Booking | null>(null);
+  const [activeScriptTab, setActiveScriptTab] = useState<'Kode.gs' | 'Index.html' | 'CSS.html' | 'JS.html'>('Kode.gs');
 
   // Load all admin data
   const loadAdminData = async () => {
@@ -71,6 +80,10 @@ export default function AdminWorkspace({
       setBookings(bList);
       const uList = await getUsers();
       setRegisteredUsers(uList);
+      const lList = await getLogins();
+      setLogins(lList || []);
+      const vList = await getVisits();
+      setVisits(vList || []);
     } catch (e) {
       console.error(e);
     }
@@ -202,7 +215,21 @@ export default function AdminWorkspace({
     }
   };
 
-  // Submit Facebook Post (FeedPost)
+  const startEditPost = (post: FeedPost) => {
+    setEditingPostId(post.id);
+    setPostTitle(post.title);
+    setPostContent(post.content);
+    setPostImageBase64(post.image || '');
+  };
+
+  const cancelEditPost = () => {
+    setEditingPostId(null);
+    setPostTitle('');
+    setPostContent('');
+    setPostImageBase64('');
+  };
+
+  // Submit Facebook Post (FeedPost) - Create or Edit
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     setPostFormError('');
@@ -212,16 +239,30 @@ export default function AdminWorkspace({
       return;
     }
 
-    const newPost: FeedPost = {
-      id: 'P-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
-      title: postTitle.trim(),
-      content: postContent.trim(),
-      createdAt: new Date().toISOString(),
-      image: postImageBase64 || undefined
-    };
-
     try {
-      const updated = await createFeedPost(newPost);
+      let updated: FeedPost[];
+      if (editingPostId) {
+        const existing = feedPosts.find(p => p.id === editingPostId);
+        const updatedPost: FeedPost = {
+          id: editingPostId,
+          title: postTitle.trim(),
+          content: postContent.trim(),
+          createdAt: existing ? existing.createdAt : new Date().toISOString(),
+          image: postImageBase64 || undefined
+        };
+        updated = await saveFeedPost(updatedPost);
+        setEditingPostId(null);
+      } else {
+        const newPost: FeedPost = {
+          id: 'P-' + Math.random().toString(36).substr(2, 9).toUpperCase(),
+          title: postTitle.trim(),
+          content: postContent.trim(),
+          createdAt: new Date().toISOString(),
+          image: postImageBase64 || undefined
+        };
+        updated = await createFeedPost(newPost);
+      }
+      
       setFeedPosts(updated);
       // Reset form
       setPostTitle('');
@@ -252,8 +293,18 @@ export default function AdminWorkspace({
     setTimeout(() => setSettingsMessage(''), 4000);
   };
 
+  const getActiveScriptCode = () => {
+    switch (activeScriptTab) {
+      case 'Kode.gs': return GOOGLE_APPS_SCRIPT_KODE_GS;
+      case 'Index.html': return GOOGLE_APPS_SCRIPT_INDEX_HTML;
+      case 'CSS.html': return GOOGLE_APPS_SCRIPT_CSS_HTML;
+      case 'JS.html': return GOOGLE_APPS_SCRIPT_JS_HTML;
+      default: return GOOGLE_APPS_SCRIPT_KODE_GS;
+    }
+  };
+
   const handleCopyScript = () => {
-    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
+    navigator.clipboard.writeText(getActiveScriptCode());
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 3000);
   };
@@ -417,6 +468,7 @@ export default function AdminWorkspace({
           { id: 'orders', label: `Daftar Pesanan Terapi (${bookings.length})` },
           { id: 'services', label: `Kelola Katalog Produk/Jasa (${services.length})` },
           { id: 'posts', label: `Kelola Berita/Facebook-Post (${feedPosts.length})` },
+          { id: 'history', label: `Analisis Trafik & Online (${visits.length})` },
           { id: 'settings', label: 'Konfigurasi Google Script Sheet' }
         ].map((subTab) => (
           <button
@@ -541,40 +593,50 @@ export default function AdminWorkspace({
 
                       {/* Action trigger buttons */}
                       <td className="p-4 py-5 text-center">
-                        <div className="flex flex-col sm:flex-row gap-1.5 justify-center">
-                          {booking.status === 'pending' && (
-                            <button
-                              onClick={() => handleStatusChange(booking.id, 'confirmed')}
-                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-750 text-white font-bold rounded-lg text-[10.5px] transition-all"
-                            >
-                              Konfirmasi Sesi
-                            </button>
-                          )}
-                          {booking.status === 'confirmed' && (
-                            <button
-                              onClick={() => handleStatusChange(booking.id, 'completed')}
-                              className="px-2 py-1 bg-blue-600 hover:bg-blue-750 text-white font-bold rounded-lg text-[10.5px] transition-all"
-                            >
-                              Selesaikan Terapi
-                            </button>
-                          )}
-                          {(booking.status === 'pending' || booking.status === 'confirmed') && (
-                            <button
-                              onClick={() => handleStatusChange(booking.id, 'cancelled')}
-                              className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-150 font-bold rounded-lg text-[10.5px] transition-all"
-                            >
-                              Batalkan Sesi
-                            </button>
-                          )}
-                          {booking.status === 'completed' && (
-                            <span className="text-emerald-700 font-bold text-[10px] flex items-center justify-center gap-1">
-                              <CheckCircle className="w-3.5 h-3.5" />
-                              Diproses Sukses
-                            </span>
-                          )}
-                          {booking.status === 'cancelled' && (
-                            <span className="text-red-650 text-[10px] italic">Batal</span>
-                          )}
+                        <div className="flex flex-col gap-1.5 justify-center">
+                          <div className="flex flex-col sm:flex-row gap-1.5 justify-center">
+                            {booking.status === 'pending' && (
+                              <button
+                                onClick={() => handleStatusChange(booking.id, 'confirmed')}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-750 text-white font-bold rounded-lg text-[10.5px] transition-all"
+                              >
+                                Konfirmasi Sesi
+                              </button>
+                            )}
+                            {booking.status === 'confirmed' && (
+                              <button
+                                onClick={() => handleStatusChange(booking.id, 'completed')}
+                                className="px-2 py-1 bg-blue-600 hover:bg-blue-750 text-white font-bold rounded-lg text-[10.5px] transition-all"
+                              >
+                                Selesaikan Terapi
+                              </button>
+                            )}
+                            {(booking.status === 'pending' || booking.status === 'confirmed') && (
+                              <button
+                                onClick={() => handleStatusChange(booking.id, 'cancelled')}
+                                className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-150 font-bold rounded-lg text-[10.5px] transition-all"
+                              >
+                                Batalkan Sesi
+                              </button>
+                            )}
+                            {booking.status === 'completed' && (
+                              <span className="text-emerald-700 font-bold text-[10px] flex items-center justify-center gap-1">
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                Diproses Sukses
+                              </span>
+                            )}
+                            {booking.status === 'cancelled' && (
+                              <span className="text-red-650 text-[10px] italic">Batal</span>
+                            )}
+                          </div>
+                          
+                          <button
+                            onClick={() => setSelectedBookingForReceipt(booking)}
+                            className="w-full px-2 py-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 border border-neutral-250 font-bold rounded-lg text-[10px] transition-all flex items-center justify-center gap-1"
+                          >
+                            <ClipboardList className="w-3 h-3 text-primary" />
+                            Struk Pesanan 🧾
+                          </button>
                         </div>
                       </td>
 
@@ -836,9 +898,11 @@ export default function AdminWorkspace({
               <div className="border-b border-neutral-100 pb-3">
                 <h3 className="text-base font-bold text-neutral-900 flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-primary" />
-                  Buat Postingan Informasi Baru
+                  {editingPostId ? 'Edit Informasi/Pengumuman' : 'Buat Postingan Informasi Baru'}
                 </h3>
-                <p className="text-[11px] text-neutral-450">Akan langsung tampil di Beranda Publik untuk semua orang.</p>
+                <p className="text-[11px] text-neutral-450">
+                  {editingPostId ? 'Perbaharui isi pengumuman ini secara real-time.' : 'Akan langsung tampil di Beranda Publik untuk semua orang.'}
+                </p>
               </div>
 
               {postFormError && (
@@ -911,14 +975,25 @@ export default function AdminWorkspace({
                   </div>
                 </div>
 
-                <button
-                  type="submit"
-                  id="btn-submit-post"
-                  className="w-full py-2.5 bg-primary hover:bg-[#c29263] text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4 text-white" />
-                  Posting Informasi Sekarang
-                </button>
+                <div className="flex gap-2">
+                  {editingPostId && (
+                    <button
+                      type="button"
+                      onClick={cancelEditPost}
+                      className="flex-1 py-2.5 bg-neutral-200 hover:bg-neutral-300 text-neutral-700 font-bold rounded-xl text-xs transition-all cursor-pointer"
+                    >
+                      Batal Edit
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    id="btn-submit-post"
+                    className="flex-[2] py-2.5 bg-primary hover:bg-[#c29263] text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {editingPostId ? <Check className="w-4 h-4 text-white" /> : <Plus className="w-4 h-4 text-white" />}
+                    {editingPostId ? 'Simpan Perubahan' : 'Posting Informasi Sekarang'}
+                  </button>
+                </div>
 
               </form>
             </div>
@@ -962,13 +1037,22 @@ export default function AdminWorkspace({
                       )}
                     </div>
 
-                    <button
-                      onClick={() => handleDeletePost(post.id)}
-                      className="p-2 bg-red-50 text-red-650 hover:text-red-750 border border-red-100 rounded-lg hover:bg-red-100 transition-all shrink-0 mt-5"
-                      title="Hapus Informasi"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex flex-col gap-2 shrink-0 max-sm:mt-4">
+                      <button
+                        onClick={() => startEditPost(post)}
+                        className="p-2 bg-white hover:bg-primary/10 text-primary border border-neutral-200 rounded-lg transition-all"
+                        title="Edit Informasi (Pencil)"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDeletePost(post.id)}
+                        className="p-2 bg-red-50 text-red-650 hover:text-red-750 border border-red-100 rounded-lg hover:bg-red-100 transition-all"
+                        title="Hapus Informasi"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
 
@@ -983,7 +1067,159 @@ export default function AdminWorkspace({
           </div>
         )}
 
-        {/* 4. GOOGLE SCRIPT SHEETS CONFIGURATION */}
+        {/* 4. HISTORY, TRAFIK, & ONLINE LOG PENGUNJUNG */}
+        {activeAdminSubTab === 'history' && (
+          <div className="space-y-6">
+            {/* KPI Cards inside History section */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              <div className="p-5 rounded-2xl bg-white border border-border-beige shadow-xs flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block">Trafik Kunjungan Web</span>
+                  <h3 className="text-2xl font-bold font-mono text-primary mt-1">{visits.length} Kunjungan</h3>
+                  <p className="text-[10px] text-neutral-450 mt-1">Total hits browser pengunjung</p>
+                </div>
+                <div className="p-3 bg-neutral-50 rounded-xl text-neutral-600">
+                  <Activity className="w-5 h-5 text-primary" />
+                </div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white border border-border-beige shadow-xs flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block">Pengunjung Monitor Online</span>
+                  <h3 className="text-2xl font-bold font-mono text-emerald-600 mt-1">
+                    {(() => {
+                      const now = new Date().getTime();
+                      const tenMinsAgo = now - (10 * 60 * 1000);
+                      const activeSessionsOnSite = visits.filter(
+                        v => v.timestamp && new Date(v.timestamp).getTime() >= tenMinsAgo
+                      );
+                      const uniqueUsers = new Set(activeSessionsOnSite.map(v => v.sessionId));
+                      return Math.max(1, uniqueUsers.size);
+                    })()} Pengunjung Online
+                  </h3>
+                  <p className="text-[10px] text-emerald-600 font-medium mt-1">&#x25CF; Online 10 menit terakhir</p>
+                </div>
+                <div className="p-3 bg-emerald-50 rounded-xl text-emerald-600">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-5 rounded-2xl bg-white border border-border-beige shadow-xs flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest block">Rekap Mandiri Pendaftar</span>
+                  <h3 className="text-2xl font-bold font-mono text-espresso mt-1">{registeredUsers.length} Akun Baru</h3>
+                  <p className="text-[10px] text-neutral-450 mt-1">Tersimpan otomatis di Google Sheets</p>
+                </div>
+                <div className="p-3 bg-neutral-50 rounded-xl text-neutral-650">
+                  <span className="font-bold text-xs font-mono">REKAP</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+              {/* Left Column: Riwayat Login Pelanggan */}
+              <div className="lg:col-span-4 bg-white rounded-3xl border border-border-beige shadow-sm p-6 space-y-4">
+                <div className="border-b border-neutral-100 pb-3">
+                  <h3 className="text-base font-bold text-neutral-900 flex items-center gap-2">
+                    <LockIcon className="w-5 h-5 text-primary" />
+                    Sesi Logged-In Pelanggan
+                  </h3>
+                  <p className="text-[11px] text-neutral-450">Data login pelanggan baru (username, kata sandi, jam masuk).</p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-neutral-50 text-neutral-500 font-mono uppercase text-[9px] border-b border-neutral-100">
+                      <tr>
+                        <th className="p-3">Username</th>
+                        <th className="p-3">Kata Sandi</th>
+                        <th className="p-3">Jam Masuk</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-100">
+                      {logins.map((lg) => (
+                        <tr key={lg.id} className="hover:bg-neutral-50 text-[11px]">
+                          <td className="p-3 font-semibold text-neutral-800">{lg.username}</td>
+                          <td className="p-3 font-mono text-neutral-450">
+                            {lg.password ? lg.password.replace(/./g, '*') : '******'}
+                          </td>
+                          <td className="p-3 font-mono text-neutral-500">
+                            {new Date(lg.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                          </td>
+                        </tr>
+                      ))}
+
+                      {logins.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="text-center py-10 text-neutral-400 font-light text-[11px]">
+                            Belum ada riwayat aktivitas login masuk.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Right Column: Riwayat Aktivitas Kunjungan (Trafik Pengunjung) */}
+              <div className="lg:col-span-8 bg-white rounded-3xl border border-border-beige shadow-sm p-6 space-y-4">
+                <div className="border-b border-neutral-100 pb-3">
+                  <h3 className="text-base font-bold text-neutral-900 flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-primary" />
+                    Riwayat Trafik IP & Gawai Pengunjung
+                  </h3>
+                  <p className="text-[11px] text-neutral-450">Memantau system browser & session id pengunjung yang melihat situs ini.</p>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-neutral-50 text-neutral-500 font-mono uppercase text-[9px] border-b border-neutral-100">
+                      <tr>
+                        <th className="p-3">ID Visit</th>
+                        <th className="p-3">Session ID</th>
+                        <th className="p-3">Perangkat / UserAgent</th>
+                        <th className="p-3">Akun Aktif</th>
+                        <th className="p-3">Tepat Jam</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-100">
+                      {visits.map((vt) => (
+                        <tr key={vt.id} className="hover:bg-neutral-50 text-[10.5px]">
+                          <td className="p-3 font-mono font-bold text-primary">{vt.id}</td>
+                          <td className="p-3 font-mono text-neutral-400">{vt.sessionId}</td>
+                          <td className="p-3 font-mono text-neutral-500 max-w-[200px] truncate" title={vt.userAgent}>
+                            {vt.userAgent}
+                          </td>
+                          <td className="p-3">
+                            <span className="px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-700 font-bold block w-fit">
+                              {vt.username || 'Guest'}
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono text-neutral-500">
+                            {new Date(vt.timestamp).toLocaleString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB
+                          </td>
+                        </tr>
+                      ))}
+
+                      {visits.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="text-center py-10 text-neutral-400 font-light text-[11px]">
+                            Belum ada riwayat trafik kunjungan browser.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 5. GOOGLE SCRIPT SHEETS CONFIGURATION */}
         {activeAdminSubTab === 'settings' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             
@@ -1048,12 +1284,12 @@ export default function AdminWorkspace({
               </div>
             </div>
 
-            {/* Instruction copy guide */}
+            {/* Instruction copy guide with multi-file tabs */}
             <div className="lg:col-span-7 bg-neutral-900 rounded-3xl text-neutral-200 border border-neutral-800 shadow-xl p-7 space-y-4">
               <div className="border-b border-neutral-800 pb-3 flex justify-between items-center flex-wrap gap-2">
                 <div>
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Kode Script Google Apps</h3>
-                  <p className="text-[10.5px] text-neutral-450 leading-relaxed pt-1.5 font-light">Copy-paste seluruh kode di bawah ini ke editor Apps Script Anda.</p>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Kode Script Google Sheets</h3>
+                  <p className="text-[10.5px] text-neutral-450 leading-relaxed pt-1.5 font-light">Salin setiap tab kode file di bawah ini ke editor Apps Script Anda.</p>
                 </div>
                 <button
                   id="btn-copy-script"
@@ -1068,30 +1304,52 @@ export default function AdminWorkspace({
                   ) : (
                     <>
                       <Copy className="w-3.5 h-3.5" />
-                      Copy Code
+                      Salin Kode {activeScriptTab}
                     </>
                   )}
                 </button>
               </div>
 
+              {/* Multi-file script tabs */}
+              <div className="flex bg-neutral-950 p-1.5 rounded-t-2xl border-t border-x border-white/5 gap-1.5 overflow-x-auto">
+                {(['Kode.gs', 'Index.html', 'CSS.html', 'JS.html'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => {
+                      setActiveScriptTab(tab);
+                      setCopiedScript(false);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                      activeScriptTab === tab
+                        ? 'bg-primary text-white shadow-xs'
+                        : 'text-neutral-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+
               {/* Code preview syntax block */}
               <div className="relative">
-                <pre className="text-[10px] font-mono p-4 bg-neutral-950 rounded-2xl max-h-[360px] overflow-auto text-neutral-300 antialiased leading-relaxed border border-white/5 whitespace-pre">
-                  {GOOGLE_APPS_SCRIPT_CODE}
+                <pre className="text-[10px] font-mono p-4 bg-neutral-950 rounded-b-2xl max-h-[360px] overflow-auto text-neutral-300 antialiased leading-relaxed border-b border-x border-white/5 whitespace-pre">
+                  {getActiveScriptCode()}
                 </pre>
               </div>
 
               {/* Simple steps bullet list */}
               <div className="p-4 bg-white/5 rounded-2xl border border-white/10 text-xs space-y-2.5">
-                <h4 className="font-bold text-[#b5a089] font-mono uppercase tracking-wider text-[10px]">Langkah Menghubungkan Google Sheet:</h4>
+                <h4 className="font-bold text-[#b5a089] font-mono uppercase tracking-wider text-[10px]">Panduan Menghubungkan Apps Script:</h4>
                 <ol className="list-decimal list-inside space-y-1.5 text-neutral-300 font-light">
                   <li>Buat Spreadsheet Google baru bernama <strong className="text-white">"Parahiyangan_Database"</strong></li>
-                  <li>Buat 4 sheet/tab dengan ejaan presisi: <strong className="text-white">Services</strong>, <strong className="text-white">Users</strong>, <strong className="text-white">Bookings</strong>, <strong className="text-white">FeedPosts</strong></li>
+                  <li>Buat 6 sheet/tab dengan ejaan persisi: <strong className="text-white">Services</strong>, <strong className="text-white">Users</strong>, <strong className="text-white">Bookings</strong>, <strong className="text-white">FeedPosts</strong>, <strong className="text-white">Logins</strong>, dan <strong className="text-white">Visits</strong></li>
                   <li>Buka menu <strong className="text-white">Extensions &gt; Apps Script</strong></li>
-                  <li>Keluarkan semua kode bawaan, lalu paste kode di atas yang sudah Anda salin</li>
+                  <li>Di Apps Script editor, tambahkan file-file HTML dengan menu tanda tambah (+), beri nama persis: <strong className="text-white">Index</strong>, <strong className="text-white">CSS</strong>, dan <strong className="text-white">JS</strong> (sehingga Anda memiliki <strong className="text-white">Kode.gs</strong>, <strong className="text-white">Index.html</strong>, <strong className="text-white">CSS.html</strong>, dan <strong className="text-white">JS.html</strong>)</li>
+                  <li>Paste masing-masing isi kode tab sesuai dengan nama filenya ke Apps Script</li>
                   <li>Klik tombol <strong className="text-white">Deploy &gt; New Deployment</strong>, pilih tipe <strong className="text-white">Web App</strong></li>
-                  <li>Atur akses <strong className="text-white">"Who has access"</strong> ke <strong className="text-white">"Anyone"</strong>, klik deploy & izinkan akses</li>
-                  <li>Copy Web App URL yang diberikan lalu tempelkan di form sebelah kiri!</li>
+                  <li>Atur akses <strong className="text-white">"Who has access"</strong> ke <strong className="text-white">"Anyone"</strong>, klik deploy & setujui izin google</li>
+                  <li>Salin Web App URL yang Anda peroleh lalu tempelkan di form "Atur Tautan Google Script" sebelah kiri!</li>
                 </ol>
               </div>
             </div>
@@ -1100,6 +1358,115 @@ export default function AdminWorkspace({
         )}
 
       </div>
+
+      {/* Elegant Printable Thermal Receipt Modal overlay */}
+      {selectedBookingForReceipt && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[999] p-4">
+          <div className="bg-white rounded-3xl border border-neutral-200 shadow-2xl p-6 max-w-md w-full relative space-y-4 max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={() => setSelectedBookingForReceipt(null)}
+              className="absolute top-4 right-4 p-1.5 hover:bg-neutral-100 rounded-lg text-neutral-400 hover:text-neutral-600 transition-all font-bold"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div>
+              <h3 className="text-base font-bold text-neutral-900 flex items-center gap-2">
+                <ClipboardList className="w-5 h-5 text-primary" />
+                Rincian Struk Order Terapi
+              </h3>
+              <p className="text-xs text-neutral-500">Gunakan tombol print di bawah untuk mencetak struk fisik thermal.</p>
+            </div>
+
+            {/* Printable Thermal Receipt Style */}
+            <div id="printable-receipt" className="bg-[#faf8f6] p-5 rounded-2xl border-2 border-dashed border-[#e6dfd5] text-neutral-800 font-sans space-y-4 shadow-inner text-xs">
+              <div className="text-center space-y-1">
+                <h4 className="text-sm font-extrabold tracking-tight uppercase text-primary">PARAHIYANGAN</h4>
+                <p className="text-[10px] text-neutral-500 uppercase tracking-wider">Refleksi, Massage, & Akupresur</p>
+                <p className="text-[9px] text-neutral-400">Bandung, Jawa Barat, Indonesia</p>
+                <div className="border-b border-[#e6dfd5] w-full pt-1.5"></div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex justify-between"><span className="text-neutral-400">ID Pesanan:</span><span className="font-mono font-bold text-primary">{selectedBookingForReceipt.id}</span></div>
+                <div className="flex justify-between"><span className="text-neutral-400">Pelanggan:</span><span className="font-bold text-neutral-900">{selectedBookingForReceipt.fullName}</span></div>
+                <div className="flex justify-between"><span className="text-neutral-400">No. WhatsApp:</span><span className="font-mono">{selectedBookingForReceipt.whatsapp}</span></div>
+                <div className="flex justify-between"><span className="text-neutral-400 font-light truncate max-w-[100px]">Alamat Kirim:</span><span className="text-right font-medium max-w-[200px] truncate" title={selectedBookingForReceipt.address}>{selectedBookingForReceipt.address}</span></div>
+                <div className="flex justify-between"><span className="text-neutral-400">Jadwal Sesi:</span><span>{new Date(selectedBookingForReceipt.bookingDate).toLocaleDateString('id-ID', {day: 'numeric', month: 'short', year: 'numeric'})} @ {selectedBookingForReceipt.bookingTime} WIB</span></div>
+                <div className="flex justify-between"><span className="text-neutral-400">Status Pembayaran:</span><span className="font-bold text-emerald-600 uppercase">TIAP-TIAP SINKRON</span></div>
+              </div>
+
+              <div className="border-b border-2 border-dashed border-[#e6dfd5] my-2"></div>
+
+              <div className="space-y-1">
+                <div className="font-semibold text-neutral-600 tracking-wide text-[10px]">RINCIAN TREATMENT:</div>
+                <div className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-neutral-100 mt-1">
+                  <div>
+                    <div className="font-bold text-neutral-800">{selectedBookingForReceipt.serviceName}</div>
+                    <div className="text-[9px] text-neutral-400 font-mono">1 Sesi Terapi Penuh</div>
+                  </div>
+                  <div className="font-bold text-neutral-900">{formatIDR(selectedBookingForReceipt.price)}</div>
+                </div>
+              </div>
+
+              <div className="border-b border-[#e6dfd5] my-2"></div>
+
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-bold text-neutral-700">TOTAL BILLING:</span>
+                <span className="font-extrabold font-mono text-primary text-sm">{formatIDR(selectedBookingForReceipt.price)}</span>
+              </div>
+
+              <div className="text-center pt-3 text-[9px] text-neutral-450 font-light italic leading-normal border-t border-[#e6dfd5]">
+                "Membantu menyelaraskan energi tubuh, melancarkan peredaran darah, meredakan ketegangan otot." Terima Kasih!
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  const printContent = document.getElementById('printable-receipt')?.innerHTML;
+                  if (printContent) {
+                    const popupWin = window.open('', '_blank', 'width=600,height=600');
+                    if (popupWin) {
+                      popupWin.document.open();
+                      popupWin.document.write(`
+                        <html>
+                          <head>
+                            <title>Struk Pesanan - ${selectedBookingForReceipt.id}</title>
+                            <script src="https://cdn.tailwindcss.com"></script>
+                            <style>
+                              body { font-family: system-ui, sans-serif; padding: 20px; background-color: white; }
+                              @media print {
+                                body { padding: 0; }
+                              }
+                            </style>
+                          </head>
+                          <body onload="window.print();window.close();">
+                            <div class="max-w-md mx-auto p-4 border rounded-xl shadow-sm bg-white">${printContent}</div>
+                          </body>
+                        </html>
+                      `);
+                      popupWin.document.close();
+                    } else {
+                      alert('Gagal membuka popup cetak. Sila izinkan popup pada browser Anda.');
+                    }
+                  }
+                }}
+                className="flex-1 py-2.5 bg-primary hover:bg-[#c29263] text-white font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-white" />
+                Cetak Struk 🖨️
+              </button>
+              <button
+                onClick={() => setSelectedBookingForReceipt(null)}
+                className="flex-1 py-2.5 bg-neutral-200 hover:bg-neutral-300 text-neutral-700 font-bold rounded-xl text-xs transition-all cursor-pointer"
+              >
+                Tutup Rincian
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

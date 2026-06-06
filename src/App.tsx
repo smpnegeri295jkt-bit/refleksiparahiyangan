@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { initializeDatabase, getServices, getFeedPosts } from './utils/sync';
+import { initializeDatabase, getServices, getFeedPosts, logVisit } from './utils/sync';
 import Navbar from './components/Navbar';
 import PublicHome from './components/PublicHome';
 import UserWorkspace from './components/UserWorkspace';
@@ -24,9 +24,19 @@ export default function App() {
         initializeDatabase();
 
         // Load logged in state from storage
+        let activeUsername = '';
         const savedUser = localStorage.getItem('parahiyangan_current_user');
         if (savedUser) {
-          setCurrentUser(JSON.parse(savedUser));
+          const parsed = JSON.parse(savedUser);
+          setCurrentUser(parsed);
+          activeUsername = parsed.username;
+        }
+
+        // Log visiting analytics
+        try {
+          await logVisit(activeUsername);
+        } catch (vErr) {
+          console.warn('Logging visit failed', vErr);
         }
 
         const savedAdmin = localStorage.getItem('parahiyangan_admin_logged_in');

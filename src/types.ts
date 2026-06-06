@@ -18,6 +18,21 @@ export interface User {
   password?: string; // used for simple auth check
 }
 
+export interface LoginLog {
+  id: string;
+  username: string;
+  password?: string;
+  timestamp: string; // login jam berapa
+}
+
+export interface Visit {
+  id: string;
+  sessionId: string;
+  username: string;
+  userAgent: string;
+  timestamp: string;
+}
+
 export interface Booking {
   id: string;
   username: string;
