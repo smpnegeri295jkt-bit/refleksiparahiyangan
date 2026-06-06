@@ -1,0 +1,6 @@
+{
+  "name": "Refleksi Massage Parahiyangan",
+  "description": "Aplikasi Pemesanan Jasa Terapis dan Pijat Refleksi Tradisional Parahiyangan Berbasis Web Modern.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
